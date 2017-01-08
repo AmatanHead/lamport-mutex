@@ -179,10 +179,21 @@ class TCPServer(BaseServer):
     host = property(lambda self: self._host)
     port = property(lambda self: self._port)
 
+    _state = None
+
     _STOPPED = 0
     _STOPPING = 1
     _STARTING = 2
     _RUNNING = 3
+
+    _state_str = {
+        _STOPPED: 'STOPPED',
+        _STOPPING: 'STOPPING',
+        _STARTING: 'STARTING',
+        _RUNNING: 'RUNNING',
+    }
+
+    state_str = property(lambda self: self._state_str.get(self._state))
 
     is_running = property(lambda self: self._state == self._RUNNING)
 

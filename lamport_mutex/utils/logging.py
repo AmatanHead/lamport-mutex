@@ -72,10 +72,10 @@ class LoggerAdapter(logging.LoggerAdapter):
         self.log(SUBINFO, *args, **kwargs)
 
     def log(self, level, msg, *args, exc_info=None, stack_info=False, **extra):
-        super(LoggerAdapter, self).log(
-            level, msg, *args,
-            exc_info=exc_info, stack_info=stack_info, extra=extra
-        )
+        if self.isEnabledFor(level):
+            kwargs = dict(exc_info=exc_info, stack_info=stack_info, extra=extra)
+            msg, kwargs = self.process(msg, kwargs)
+            self.logger._log(level, msg, args, **kwargs)
 
 
 class Formatter(logging.Formatter):
@@ -136,7 +136,7 @@ class Formatter(logging.Formatter):
         data['level_no'] = level_color + str(data['level_no']) + Colors.reset
         data['message'] = level_color + data['message'] + Colors.reset
         data['state'] = state_color + data['state'] + Colors.reset
-        data['extra'] = Colors.Fg.darkgrey + data['extra'] + Colors.reset
+        data['extra'] = state_color + data['extra'] + Colors.reset
         data['location'] = Colors.Fg.darkgrey + data['location'] + Colors.reset
 
     def format(self, record):
@@ -157,7 +157,7 @@ class Formatter(logging.Formatter):
 
         data = vars(record)
         data.update(dict(
-            extra=json.dumps(extra, separators=(',', ':')),
+            extra=json.dumps(extra, separators=(',', ':'), default=repr),
             level_no=level_no,
 
             p_time=str(datetime.datetime.fromtimestamp(record.created)),

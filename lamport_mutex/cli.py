@@ -12,13 +12,15 @@ import time
 import fcntl
 
 from lamport_mutex.mutex import Mutex
-from lamport_mutex.utils.logging import setup_logging, Colors, SUBDEBUG, SUBINFO
+from lamport_mutex.utils.logging import (
+    setup_logging, Colors, SUBDEBUG, SUBINFO, LoggerAdapter
+)
 from lamport_mutex.version import __version__ as version
 from lamport_mutex.rpc.server import TCPServer
 from lamport_mutex.rpc.client import TCPClient
 
 
-_logger = logging.getLogger('lamport_mutex/cli')
+_logger = LoggerAdapter(logging.getLogger('lamport_mutex/cli'))
 
 
 def host_port_type(value):
@@ -215,7 +217,7 @@ def run(namespace):
 
     host, port = namespace.host_port
 
-    mutex = Mutex(host, port, namespace.other_clients, loop=loop)
+    mutex = Mutex(host, port, others=namespace.other_clients, loop=loop)
 
     if namespace.verbose > 2:
         level = SUBDEBUG
@@ -352,18 +354,23 @@ def stress(namespace):
 
         process = loop.run_until_complete(
             asyncio.create_subprocess_exec(
-                *args, loop=loop, stderr=asyncio.subprocess.PIPE
+                *args, loop=loop,
+                stderr=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
             ),
         )
 
         processes.append(process)
 
     for process in processes:
-        stdout_data, stderr_data = loop.run_until_complete(process.communicate())
+        stdout_data, stderr_data = loop.run_until_complete(
+            process.communicate()
+        )
         code = loop.run_until_complete(process.wait())
         _logger.info('process exited with code %s', code)
-        if stderr_data:
-            _logger.info('stderr data from process: %s', stderr_data)
+        if stderr_data or stdout_data:
+            _logger.info('data from process',
+                         stderr_data=stderr_data, stdout_data=stdout_data)
 
     _logger.info('all processes has exited')
 
@@ -380,12 +387,12 @@ def stress_worker(namespace):
 
     host, port = namespace.host_port
 
-    mutex = Mutex(host, port, namespace.other_clients, loop=loop)
+    mutex = Mutex(host, port, others=namespace.other_clients, loop=loop)
 
     log_file = open(os.path.join(namespace.log_dir, '%s.log' % pid), 'w')
 
     setup_logging(mutex, host, port,
-                  stream=log_file, level=logging.INFO, use_colors=False)
+                  stream=log_file, level=logging.DEBUG, use_colors=False)
 
     status_client = TCPClient(*namespace.master_host_port, loop=loop)
 
@@ -412,7 +419,7 @@ def stress_worker(namespace):
 
         while True:
             if time.time() - start_time > namespace.timeout:
-                _logger.info('it\'s time, stopping the mutex')
+                _logger.info('stopping the mutex')
                 return
 
             try:
@@ -440,8 +447,6 @@ def stress_worker(namespace):
                 status_client.call_nr('rp_fail', pid, 'acquiring failed', e)
                 raise
 
-            _logger.info('acquired')
-
             count += 1
 
             try:
@@ -456,8 +461,6 @@ def stress_worker(namespace):
                 )
                 status_client.call_nr('rp_fail', pid, 'file is locked')
                 raise
-
-            _logger.info('locked the file')
 
             try:
                 await asyncio.wait_for(mutex.release(), namespace.lock_timeout)
@@ -483,8 +486,6 @@ def stress_worker(namespace):
                 )
                 status_client.call_nr('rp_fail', pid, 'releasing failed', e)
                 raise
-
-            _logger.info('released')
 
             if count % 100 == 0:
                 current_time = time.time()

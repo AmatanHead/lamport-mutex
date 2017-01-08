@@ -12,7 +12,13 @@ _logger = LoggerAdapter(logging.getLogger('lamport_mutex'))
 
 
 class Mutex:
-    """Implementation of the Lamport mutual exclusion algorithm"""
+    """Implementation of the Lamport mutual exclusion algorithm
+
+    This class is not threadsafe.
+    """
+
+    _server_cls = TCPServer
+    _client_cls = TCPClient
 
     _time = None
     _pid = None
@@ -44,9 +50,24 @@ class Mutex:
 
     _state = None
 
-    state_str = property(lambda self: self._state_str[self._state])
+    state_str = property(lambda self: self._state_str.get(self._state))
 
-    def __init__(self, host, port, others, loop=None, pid=None):
+    def __init__(self, *args, others, loop=None, pid=None):
+        """Initialize the server
+
+        :param args: star args that will be passed to the server class.
+            If using TCPServer as a transport (which is the default),
+            ``args`` are expected to be a pair of host and port.
+        :param others: list of other processes. Every element of this list
+            will be passed as star-args to the client class.
+            If using TCPServer as a transport (which is the default),
+            ``others`` are expected to be a list of host and port pairs.
+        :param loop: asyncio loop to run this mutex in.
+        :param pid: id for this process. This may be any value that is
+            unique for all processes. It should be serializable and
+            comparable with ids of other processes.
+            By default ``os.getpid()`` is used.
+        """
         if loop is None:
             self._loop = asyncio.get_event_loop()
         else:
@@ -60,7 +81,7 @@ class Mutex:
         # Current logical time
         self._time = 0
 
-        self._server = TCPServer(host, port, loop=self._loop)
+        self._server = self._server_cls(*args, loop=self._loop)
 
         self._server.register(self._rp_status)
         self._server.register(self._rp_start)
@@ -136,19 +157,14 @@ class Mutex:
         try:
             await self._init()
         except Exception as e:
-            _logger.error(
-                'initializing failed, cleaning up',
-                exc_info=e, stack_info=True
-            )
-
+            _logger.error('initializing failed', exc_info=e, stack_info=True)
             await self._tear_down()
-
             raise
 
     async def _init(self):
         self._state = self._INITIALIZING
 
-        _logger.info('initializing mutex')
+        _logger.debug('initializing')
 
         # 1) start a server
 
@@ -157,7 +173,8 @@ class Mutex:
         # 2) connect to all clients
 
         clients = [
-            TCPClient(h, p, loop=self._loop) for h, p in self._client_addresses
+            self._client_cls(*_, loop=self._loop)
+            for _ in self._client_addresses
         ]
 
         for client in clients:
@@ -176,13 +193,13 @@ class Mutex:
                 _logger.critical('failed to connect to %r', client)
                 raise RuntimeError('failed to connect to %r' % client)
 
-        _logger.info('connected to all clients')
+        _logger.debug('connected to all clients')
 
         # 3) collect statuses
 
         least_pid = self._pid
 
-        for client in self._client_connections.values():
+        for client in clients:
             pid, time, state = await client.call('_rp_status')
             least_pid = min(least_pid, pid)
             self._client_clocks[pid] = time
@@ -190,12 +207,12 @@ class Mutex:
 
         self._state = self._READY
 
-        _logger.info('ready to run')
+        _logger.debug('ready to run')
 
         # 4) choose a master
 
         if least_pid == self._pid:
-            _logger.info('this process is a master')
+            _logger.debug('this process is a master')
 
             for client in self._client_connections.values():
                 state = self._NOT_INITIALIZED
@@ -210,12 +227,12 @@ class Mutex:
             _logger.debug('all clients are ready to run')
 
             for client in self._client_connections.values():
-                client.call_nr('_rp_start', self.pid)
+                client.call_nr('_rp_start', self._pid)
 
             self._state = self._RELEASED
             self._ready_event.set()
         else:
-            _logger.info('waiting command from master')
+            _logger.debug('waiting command from master')
             await self._ready_event.wait()
 
         # 5) check that no client disconnected during init
@@ -226,7 +243,7 @@ class Mutex:
 
         # 6) lock 'n load!
 
-        _logger.info('initialized mutex')
+        _logger.info('initialized')
 
     async def tear_down(self):
         """Stop the mutex
@@ -244,16 +261,15 @@ class Mutex:
     async def _tear_down(self):
         self._state = self._TERMINATING
 
-        _logger.info('stopping mutex')
+        _logger.debug('stopping')
 
         self._ready_event.clear()
 
         for client in self._client_connections.values():
             if not client.is_connected:
                 continue
-            _logger.debug('sending terminate to %r', client)
             try:
-                await client.call('_rp_terminate', self.pid)
+                await client.call('_rp_terminate', self._pid)
             except EOFError:
                 _logger.debug(
                     'client %r is already dead',
@@ -269,8 +285,6 @@ class Mutex:
             if client.is_connected:
                 await client.disconnect()
 
-        _logger.debug('stopping the server')
-
         if self._server.is_running:
             await self._server.stop()
 
@@ -282,7 +296,7 @@ class Mutex:
         finally:
             self._state_update_event.release()
 
-        _logger.info('stopped mutex')
+        _logger.info('stopped')
 
     # Public API
 
@@ -293,16 +307,18 @@ class Mutex:
 
         self._state = self._ACQUIRING
 
-        _logger.debug('acquire process begins')
+        _logger.debug('acquiring')
 
-        request = (self.time, self.pid)
+        request = (self._time, self._pid)
 
         heapq.heappush(self._queue, request)
 
         self._time += 1
 
         for client in self._client_connections.values():
-            client.call_nr('_rp_request', self.pid, self.time, request)
+            client.call_nr('_rp_request', self._pid, self._time, request)
+
+        _logger.debug('requests sent')
 
         await self._state_update_event.acquire()
         try:
@@ -314,7 +330,7 @@ class Mutex:
 
         self._state = self._ACQUIRED
 
-        _logger.debug('acquired')
+        _logger.info('acquired')
 
     async def release(self):
         """Release the mutex and broadcast good news to other processes"""
@@ -323,7 +339,7 @@ class Mutex:
 
         self._state = self._RELEASING
 
-        _logger.debug('release process begins')
+        _logger.debug('releasing')
 
         if not self._queue or self._queue[0][1] != self._pid:
             _logger.critical(
@@ -342,11 +358,11 @@ class Mutex:
         self._time += 1
 
         for client in self._client_connections.values():
-            client.call_nr('_rp_release', self.pid, self.time, request)
+            client.call_nr('_rp_release', self._pid, self._time, request)
 
         self._state = self._RELEASED
 
-        _logger.debug('released')
+        _logger.info('released')
 
     # Routines
 
@@ -354,7 +370,7 @@ class Mutex:
         if not self._queue:
             return False
         request_time = self._queue[0][0]
-        return self._queue[0][1] == self.pid and all(
+        return self._queue[0][1] == self._pid and all(
             time > request_time for time in self._client_clocks.values()
         )
 
@@ -365,13 +381,13 @@ class Mutex:
 
     async def _rp_start(self, pid):
         if not self._ready_event.is_set():
-            _logger.info('got start command from %r', pid)
+            _logger.subdebug('got start command from %r', pid)
             self._state = self._RELEASED
             self._ready_event.set()
 
     async def _rp_terminate(self, pid):
         if self._state != self._TERMINATING:
-            _logger.info('got terminate command from %r', pid)
+            _logger.subdebug('got terminate command from %r', pid)
             self._state = self._TERMINATING
             asyncio.ensure_future(self._tear_down(), loop=self._loop)
 
@@ -391,7 +407,7 @@ class Mutex:
         finally:
             self._state_update_event.release()
 
-        _logger.info('processed heartbeat from %r', pid)
+        _logger.subdebug('processed heartbeat from %r', pid)
 
     async def _rp_request(self, pid, time, request):
         if self._state in (self._TERMINATING, self._TERMINATED):
@@ -412,10 +428,10 @@ class Mutex:
             self._state_update_event.release()
 
         self._client_connections[pid].call_nr(
-            '_rp_heartbeat', self.pid, self.time
+            '_rp_heartbeat', self._pid, self._time
         )
 
-        _logger.info('processed request from %r', pid)
+        _logger.subdebug('processed request from %r', pid)
 
     async def _rp_release(self, pid, time, request):
         if self._state in (self._TERMINATING, self._TERMINATED):
@@ -449,7 +465,7 @@ class Mutex:
             self._state_update_event.release()
 
         self._client_connections[pid].call_nr(
-            '_rp_heartbeat', self.pid, self.time
+            '_rp_heartbeat', self._pid, self._time
         )
 
-        _logger.info('processed release from %r', pid)
+        _logger.subdebug('processed release from %r', pid)

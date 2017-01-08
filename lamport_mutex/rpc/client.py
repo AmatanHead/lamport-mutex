@@ -143,6 +143,15 @@ class TCPClient(BaseClient):
     _CONNECTING = 2
     _CONNECTED = 3
 
+    _state_str = {
+        _DISCONNECTED: 'DISCONNECTED',
+        _DISCONNECTING: 'DISCONNECTING',
+        _CONNECTING: 'CONNECTING',
+        _CONNECTED: 'CONNECTED',
+    }
+
+    state_str = property(lambda self: self._state_str.get(self._state))
+
     is_connected = property(lambda self: self._state == self._CONNECTED)
 
     def __init__(self, host, port, loop=None):
