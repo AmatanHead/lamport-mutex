@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from setuptools import setup
+from setuptools import setup, find_packages
 
 
 TOP_LEVEL = 'lamport_mutex'
@@ -16,8 +16,15 @@ if __name__ == '__main__':
     setup(
         name='lamport-mutex',
         version=VERSION,
+        packages=find_packages(),
         author='Vladimir Goncharov',
         author_email='dev.zelta@gmail.com',
+        extras_require={
+            'dev': [
+                'pytest==3.0.5',
+                'pytest-asyncio==0.5.0',
+            ]
+        },
         entry_points=dict(
             console_scripts=[
                 'lamport-mutex=lamport_mutex.cli:main',

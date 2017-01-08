@@ -135,8 +135,8 @@ class Formatter(logging.Formatter):
         data['level'] = level_color + data['level'] + Colors.reset
         data['level_no'] = level_color + str(data['level_no']) + Colors.reset
         data['message'] = level_color + data['message'] + Colors.reset
+        data['extra'] = level_color + data['extra'] + Colors.reset
         data['state'] = state_color + data['state'] + Colors.reset
-        data['extra'] = state_color + data['extra'] + Colors.reset
         data['location'] = Colors.Fg.darkgrey + data['location'] + Colors.reset
 
     def format(self, record):

@@ -243,10 +243,13 @@ def run(namespace):
 
     mutex = Mutex(host, port, others=namespace.other_clients, loop=loop)
 
-    if namespace.verbose > 2:
+    if namespace.verbose is None:
+        level = logging.INFO
+    elif namespace.verbose > 2:
         level = SUBDEBUG
     else:
         level = [logging.INFO, SUBINFO, logging.DEBUG][namespace.verbose]
+    print(level)
 
     setup_logging(mutex, host, port,
                   stream=namespace.log, level=level,
