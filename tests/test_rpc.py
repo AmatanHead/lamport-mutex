@@ -10,7 +10,7 @@ async def test_server_start_stop(server):
 
     assert server.is_running
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(AssertionError):
         await server.start()
 
     assert server.is_running
@@ -19,15 +19,15 @@ async def test_server_start_stop(server):
 
     assert not server.is_running
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(AssertionError):
         await server.stop()
 
     assert not server.is_running
 
 
 @pytest.mark.asyncio
-async def test_client_connect_disconnect(server_client):
-    server, client = server_client
+async def test_client_connect_disconnect(server, client_factory):
+    client = client_factory(server)
 
     await server.start()
 
@@ -36,22 +36,22 @@ async def test_client_connect_disconnect(server_client):
     assert server.is_running
     assert client.is_connected
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(AssertionError):
         await client.connect()
 
     await client.disconnect()
 
     assert not client.is_connected
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(AssertionError):
         await client.disconnect()
 
     await server.stop()
 
 
 @pytest.mark.asyncio
-async def test_handlers(server_client):
-    server, client = server_client
+async def test_handlers(server, client_factory):
+    client = client_factory(server)
 
     @server.register
     async def div(a, b):
@@ -87,8 +87,8 @@ async def test_handlers(server_client):
 
 
 @pytest.mark.asyncio
-async def test_nr_handlers(server_client):
-    server, client = server_client
+async def test_nr_handlers(server, client_factory):
+    client = client_factory(server)
 
     results = []
 
@@ -112,9 +112,9 @@ async def test_nr_handlers(server_client):
 
 
 @pytest.mark.asyncio
-async def test_concurrent(server):
-    client1 = TCPClient(server.host, server.port, loop=server.loop)
-    client2 = TCPClient(server.host, server.port, loop=server.loop)
+async def test_concurrent(server, client_factory):
+    client1 = client_factory(server)
+    client2 = client_factory(server)
 
     @server.register
     async def call(i):
@@ -153,8 +153,7 @@ async def test_concurrent(server):
     sched(client2, 14, que2, que2_expected)
     sched(client2, 15, que2, que2_expected)
 
-    for future in futures:
-        await future
+    await asyncio.gather(*futures)
 
     await asyncio.sleep(0.01)
 
@@ -167,8 +166,8 @@ async def test_concurrent(server):
 
 
 @pytest.mark.asyncio
-async def test_sudden_disconnection(server_client):
-    server, client = server_client
+async def test_sudden_disconnection(server, client_factory):
+    client = client_factory(server)
 
     @server.register
     async def long_cb():

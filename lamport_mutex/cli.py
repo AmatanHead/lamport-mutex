@@ -572,3 +572,7 @@ def log_check(namespace):
     checker = Checker.ltime_checker(namespace.lock_file)
     checker.check(namespace.log, namespace.log_dir)
     checker.report(namespace.log, not namespace.no_color)
+
+
+if __name__ == '__main__':
+    main()
