@@ -74,7 +74,7 @@ class Mutex:
             self._loop = loop
 
         if pid is None:
-            self._pid = os.getpid()
+            self._pid = str(os.getpid())
         else:
             self._pid = pid
 

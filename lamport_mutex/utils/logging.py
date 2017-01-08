@@ -155,12 +155,17 @@ class Formatter(logging.Formatter):
 
         state = self._mutex.state_str if self._mutex is not None else 'NA'
 
+        p_time = datetime.datetime.fromtimestamp(record.created)
+        p_time_str = str(p_time)
+        if not p_time.microsecond:
+            p_time_str += '.000000'
+
         data = vars(record)
         data.update(dict(
             extra=json.dumps(extra, separators=(',', ':'), default=repr),
             level_no=level_no,
 
-            p_time=str(datetime.datetime.fromtimestamp(record.created)),
+            p_time=p_time_str,
             l_time=self._mutex.time if self._mutex is not None else 0,
 
             state=state.ljust(15) if state != 'NA' else state,
@@ -168,7 +173,7 @@ class Formatter(logging.Formatter):
             host=self._host,
             port=self._port,
 
-            pid=record.process,
+            pid=self._mutex.pid if self._mutex is not None else 'NA',
 
             level=self.level_names.get(level_no, record.levelname),
 
