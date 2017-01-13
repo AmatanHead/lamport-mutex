@@ -436,10 +436,6 @@ class Checker:
             'l_time'
         )
 
-    @classmethod
-    def ptime_checker(cls):
-        pass
-
     def __init__(self, states, metrics, sort_by):
         self.metrics = metrics
         self.states = states
